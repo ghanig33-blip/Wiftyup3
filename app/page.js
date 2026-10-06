@@ -1,144 +1,145 @@
-"use client";
-import { useState } from "react";
-import { auth, googleProvider } from "../lib/firebase";
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { 
+  getAuth, 
   signInWithPopup, 
-  createUserWithEmailAndPassword, 
-  signInWithEmailAndPassword,
-  RecaptchaVerifier,
-  signInWithPhoneNumber
-} from "firebase/auth";
+  GoogleAuthProvider, 
+  RecaptchaVerifier, 
+  signInWithPhoneNumber 
+} from 'firebase/auth';
+import { app } from '@/lib/firebase'; // Ya jo bhi aapka firebase config path hai
 
 export default function Home() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [phone, setPhone] = useState("");
-  const [otp, setOtp] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [otp, setOtp] = useState('');
   const [confirmationResult, setConfirmationResult] = useState(null);
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  // 1. Google Sign-In Test
-  const handleGoogleLogin = async () => {
-    try {
-      setStatus("Google login initiated...");
-      const res = await signInWithPopup(auth, googleProvider);
-      setStatus(`Success! Logged in as: ${res.user.displayName || res.user.email}`);
-    } catch (err) {
-      setStatus(`Google Error: ${err.message}`);
-    }
-  };
+  const router = useRouter();
+  const auth = getAuth(app);
 
-  // 2. Email Sign-Up Test
-  const handleEmailSignUp = async () => {
-    try {
-      setStatus("Creating email account...");
-      const res = await createUserWithEmailAndPassword(auth, email, password);
-      setStatus(`Success! User created: ${res.user.email}`);
-    } catch (err) {
-      setStatus(`Email Error: ${err.message}`);
-    }
-  };
-
-  // 3. Phone Auth Test (OTP)
-  const setupRecaptcha = () => {
+  useEffect(() => {
     if (!window.recaptchaVerifier) {
-      window.recaptchaVerifier = new RecaptchaVerifier(auth, "recaptcha-container", {
-        size: "invisible",
+      window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+        size: 'invisible',
       });
     }
-  };
+  }, [auth]);
 
-  const handleSendOtp = async () => {
+  // 1. Google Sign-In
+  const handleGoogleSignIn = async () => {
     try {
-      setStatus("Sending OTP...");
-      setupRecaptcha();
-      const appVerifier = window.recaptchaVerifier;
-      const result = await signInWithPhoneNumber(auth, phone, appVerifier);
-      setConfirmationResult(result);
-      setStatus("OTP Sent! Enter the code below.");
-    } catch (err) {
-      setStatus(`Phone Error: ${err.message}`);
+      setLoading(true);
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+      setStatus('Google Sign-In Successful!');
+      router.push('/dashboard');
+    } catch (error) {
+      setStatus(`Google Error: ${error.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
+  // 2. Send OTP
+  const handleSendOtp = async () => {
+    try {
+      setLoading(true);
+      setStatus('Sending OTP...');
+      const appVerifier = window.recaptchaVerifier;
+      const confirmation = await signInWithPhoneNumber(auth, phoneNumber, appVerifier);
+      setConfirmationResult(confirmation);
+      setStatus('OTP Sent successfully! Check your phone.');
+    } catch (error) {
+      setStatus(`Phone Error: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 3. Verify OTP
   const handleVerifyOtp = async () => {
     try {
-      setStatus("Verifying OTP...");
-      const res = await confirmationResult.confirm(otp);
-      setStatus(`Success! Phone logged in: ${res.user.phoneNumber}`);
-    } catch (err) {
-      setStatus(`OTP Error: ${err.message}`);
+      setLoading(true);
+      setStatus('Verifying OTP...');
+      await confirmationResult.confirm(otp);
+      setStatus('Phone Auth Successful!');
+      router.push('/dashboard');
+    } catch (error) {
+      setStatus(`OTP Error: ${error.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div style={{ maxWidth: "400px", margin: "40px auto", padding: "20px", fontFamily: "sans-serif" }}>
-      <h1>WiftyUp Auth Testing</h1>
-      
+    <main className="min-h-screen p-8 max-w-md mx-auto flex flex-col gap-6">
+      <h1 className="text-2xl font-bold">WiftyUp Auth Testing</h1>
+
       {status && (
-        <div style={{ padding: "10px", background: "#f0f0f0", marginBottom: "20px", borderRadius: "5px", wordBreak: "break-all" }}>
+        <div className="p-3 bg-gray-800 text-white rounded text-sm break-words">
           <strong>Status:</strong> {status}
         </div>
       )}
 
-      {/* Google Test */}
-      <section style={{ marginBottom: "20px" }}>
-        <h3>1. Google Auth</h3>
-        <button onClick={handleGoogleLogin} style={{ padding: "10px 15px", cursor: "pointer" }}>
+      {/* Recaptcha Container */}
+      <div id="recaptcha-container"></div>
+
+      {/* Google Auth */}
+      <section className="border-t pt-4">
+        <h2 className="font-semibold mb-2">1. Google Auth</h2>
+        <button
+          onClick={handleGoogleSignIn}
+          disabled={loading}
+          className="bg-white text-black px-4 py-2 rounded font-medium border"
+        >
           Sign in with Google
         </button>
       </section>
 
-      <hr />
-
-      {/* Email Test */}
-      <section style={{ marginBottom: "20px" }}>
-        <h3>2. Email Auth</h3>
-        <input 
-          type="email" 
-          placeholder="Email" 
-          value={email} 
-          onChange={(e) => setEmail(e.target.value)} 
-          style={{ display: "block", width: "100%", marginBottom: "8px", padding: "8px" }}
-        />
-        <input 
-          type="password" 
-          placeholder="Password" 
-          value={password} 
-          onChange={(e) => setPassword(e.target.value)} 
-          style={{ display: "block", width: "100%", marginBottom: "8px", padding: "8px" }}
-        />
-        <button onClick={handleEmailSignUp} style={{ padding: "8px 12px" }}>Sign Up with Email</button>
-      </section>
-
-      <hr />
-
-      {/* Phone Test */}
-      <section style={{ marginBottom: "20px" }}>
-        <h3>3. Phone Auth</h3>
-        <input 
-          type="tel" 
-          placeholder="+923001234567" 
-          value={phone} 
-          onChange={(e) => setPhone(e.target.value)} 
-          style={{ display: "block", width: "100%", marginBottom: "8px", padding: "8px" }}
-        />
-        <button onClick={handleSendOtp} style={{ padding: "8px 12px", marginBottom: "10px" }}>Send OTP</button>
-
-        {confirmationResult && (
-          <div>
-            <input 
-              type="text" 
-              placeholder="Enter 6-digit OTP" 
-              value={otp} 
-              onChange={(e) => setOtp(e.target.value)} 
-              style={{ display: "block", width: "100%", marginBottom: "8px", padding: "8px" }}
+      {/* Phone Auth */}
+      <section className="border-t pt-4 flex flex-col gap-3">
+        <h2 className="font-semibold">2. Phone Auth</h2>
+        
+        {!confirmationResult ? (
+          <>
+            <input
+              type="text"
+              placeholder="+923001234567"
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(e.target.value)}
+              className="p-2 border rounded text-black"
             />
-            <button onClick={handleVerifyOtp} style={{ padding: "8px 12px" }}>Verify OTP</button>
-          </div>
+            <button
+              onClick={handleSendOtp}
+              disabled={loading}
+              className="bg-blue-600 text-white px-4 py-2 rounded font-medium"
+            >
+              Send OTP
+            </button>
+          </>
+        ) : (
+          <>
+            <input
+              type="text"
+              placeholder="Enter OTP"
+              value={otp}
+              onChange={(e) => setOtp(e.target.value)}
+              className="p-2 border rounded text-black"
+            />
+            <button
+              onClick={handleVerifyOtp}
+              disabled={loading}
+              className="bg-green-600 text-white px-4 py-2 rounded font-medium"
+            >
+              Verify OTP
+            </button>
+          </>
         )}
-        <div id="recaptcha-container"></div>
       </section>
-    </div>
+    </main>
   );
 }
