@@ -60,12 +60,8 @@ export default function VideoCallPage() {
       const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
       await agoraClientRef.current.join(APP_ID, CHANNEL, null, null);
 
-      // Directly create tracks via Agora SDK bypassing raw navigator calls
-      const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
-        {},
-        { encoderConfig: '360p_1' } // Low bandwidth resolution for instant mobile camera hook
-      );
-
+      // Create tracks directly without throw alerts
+      const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
       localTracksRef.current = [audioTrack, videoTrack];
 
       if (localVideoRef.current) {
@@ -75,7 +71,6 @@ export default function VideoCallPage() {
       setJoined(true);
     } catch (err) {
       console.error("Agora Track Error:", err);
-      alert("Camera Issue: Clear Chrome Data / Site Data for wiftyup3.vercel.app and reload.");
     } finally {
       setLoading(false);
     }
