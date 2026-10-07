@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import AgoraRTC from 'agora-rtc-sdk-ng';
 
 export default function VideoCallClient() {
   const router = useRouter();
@@ -18,49 +17,44 @@ export default function VideoCallClient() {
   const APP_ID = 'fe1f95d122e24d269877eb372e915fa8'; 
   const CHANNEL = 'wiftyup-room';
 
-  useEffect(() => {
-    AgoraRTC.setLogLevel(3);
-
-    const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-    agoraClientRef.current = client;
-
-    client.on('user-published', async (user, mediaType) => {
-      await client.subscribe(user, mediaType);
-      if (mediaType === 'video' && remoteVideoRef.current) {
-        user.videoTrack.play(remoteVideoRef.current);
-      }
-      if (mediaType === 'audio') {
-        user.audioTrack.play();
-      }
-    });
-
-    client.on('user-unpublished', () => {
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.innerHTML = '';
-      }
-    });
-
-    return () => {
-      leaveCall();
-    };
-  }, []);
-
   const joinCall = async () => {
-    if (!agoraClientRef.current) return;
     setLoading(true);
     setErrorMsg('');
 
     try {
-      // 1. Force Native WebRTC Browser Media Access (Bypasses Agora Permission Restrictions)
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640 }, height: { ideal: 360 }, facingMode: 'user' },
+      // 1. Direct browser API execution (Guarantees prompt modal in Chrome)
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 360 } },
         audio: true
       });
 
-      const videoTrackRaw = stream.getVideoTracks()[0];
-      const audioTrackRaw = stream.getAudioTracks()[0];
+      // 2. Load Agora SDK dynamically ONLY AFTER media access is granted
+      const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
+      AgoraRTC.setLogLevel(3);
 
-      // 2. Convert Raw Browser Tracks into Agora Custom Tracks
+      const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+      agoraClientRef.current = client;
+
+      client.on('user-published', async (user, mediaType) => {
+        await client.subscribe(user, mediaType);
+        if (mediaType === 'video' && remoteVideoRef.current) {
+          user.videoTrack.play(remoteVideoRef.current);
+        }
+        if (mediaType === 'audio') {
+          user.audioTrack.play();
+        }
+      });
+
+      client.on('user-unpublished', () => {
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.innerHTML = '';
+        }
+      });
+
+      // 3. Extract raw tracks into Agora Custom Tracks
+      const videoTrackRaw = mediaStream.getVideoTracks()[0];
+      const audioTrackRaw = mediaStream.getAudioTracks()[0];
+
       const cameraTrack = AgoraRTC.createCustomVideoTrack({
         mediaStreamTrack: videoTrackRaw,
       });
@@ -69,8 +63,7 @@ export default function VideoCallClient() {
         mediaStreamTrack: audioTrackRaw,
       });
 
-      // 3. Join Channel and Publish Custom Native Stream
-      await agoraClientRef.current.join(APP_ID, CHANNEL, null, null);
+      await client.join(APP_ID, CHANNEL, null, null);
 
       localTracksRef.current = [microphoneTrack, cameraTrack];
 
@@ -79,11 +72,11 @@ export default function VideoCallClient() {
         cameraTrack.play(localVideoRef.current);
       }
 
-      await agoraClientRef.current.publish([microphoneTrack, cameraTrack]);
+      await client.publish([microphoneTrack, cameraTrack]);
       setJoined(true);
     } catch (err) {
       console.error("Camera Custom Stream Error:", err);
-      setErrorMsg(`Access Error: ${err?.message || "Camera permissions denied by browser"}`);
+      setErrorMsg(`Camera Access Denied: ${err?.message || "Please check browser permissions"}`);
     } finally {
       setLoading(false);
     }
@@ -103,6 +96,12 @@ export default function VideoCallClient() {
     setJoined(false);
     router.push('/chat');
   };
+
+  useEffect(() => {
+    return () => {
+      leaveCall();
+    };
+  }, []);
 
   return (
     <div className="flex flex-col items-center justify-between h-screen bg-gray-950 text-white p-4">
