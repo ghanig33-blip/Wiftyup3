@@ -9,6 +9,7 @@ export default function VideoCallPage() {
   const router = useRouter();
   const [joined, setJoined] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const agoraClientRef = useRef(null);
@@ -23,6 +24,7 @@ export default function VideoCallPage() {
     const initAgora = async () => {
       if (typeof window !== 'undefined') {
         const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
+        AgoraRTC.setLogLevel(4); // Suppress unnecessary logs
         if (!isMounted) return;
 
         const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
@@ -57,36 +59,50 @@ export default function VideoCallPage() {
   const joinCall = async () => {
     if (!agoraClientRef.current || typeof window === 'undefined') return;
     setLoading(true);
+    setErrorMsg('');
 
     try {
       const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
 
-      // Request media tracks directly on click
-      const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
-        {},
-        {
-          encoderConfig: {
-            width: { max: 640 },
-            height: { max: 360 },
-            frameRate: 15,
-            bitrateMin: 60,
-            bitrateMax: 400,
-          },
-        }
-      );
+      // 1. Separate track initialization to prevent mobile browser rejection
+      let audioTrack, videoTrack;
+      
+      try {
+        videoTrack = await AgoraRTC.createCameraVideoTrack({
+          encoderConfig: '240p_1'
+        });
+      } catch (e) {
+        console.warn("Video track failed, trying fallback:", e);
+      }
 
+      try {
+        audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+      } catch (e) {
+        console.warn("Audio track failed:", e);
+      }
+
+      if (!videoTrack && !audioTrack) {
+        throw new Error("Unable to access camera or microphone.");
+      }
+
+      // 2. Join Agora Channel
       await agoraClientRef.current.join(APP_ID, CHANNEL, null, null);
 
-      localTracksRef.current = [audioTrack, videoTrack];
-
-      if (localVideoRef.current) {
-        videoTrack.play(localVideoRef.current);
+      const tracksToPublish = [];
+      if (audioTrack) tracksToPublish.push(audioTrack);
+      if (videoTrack) {
+        tracksToPublish.push(videoTrack);
+        if (localVideoRef.current) {
+          videoTrack.play(localVideoRef.current);
+        }
       }
-      await agoraClientRef.current.publish([audioTrack, videoTrack]);
+
+      localTracksRef.current = tracksToPublish;
+      await agoraClientRef.current.publish(tracksToPublish);
       setJoined(true);
     } catch (err) {
-      console.error("Agora Track Error:", err);
-      alert(`Camera Access Error: ${err?.message || err}`);
+      console.error("Call Join Error:", err);
+      setErrorMsg(err?.message || "Camera access failed. Try opening in Chrome Incognito tab.");
     } finally {
       setLoading(false);
     }
@@ -115,6 +131,12 @@ export default function VideoCallPage() {
           Global Low-Latency
         </span>
       </div>
+
+      {errorMsg && (
+        <div className="w-full max-w-md my-2 p-3 bg-red-500/20 border border-red-500/40 rounded-xl text-red-300 text-xs text-center">
+          {errorMsg}
+        </div>
+      )}
 
       <div className="flex-1 w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-4 py-4 my-auto items-center">
         <div className="relative w-full h-64 md:h-80 bg-gray-900 rounded-2xl overflow-hidden border border-gray-800 flex items-center justify-center">
