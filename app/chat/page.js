@@ -98,8 +98,9 @@ export default function ChatPage() {
     }
   };
 
+  // Direct Video Call Route Navigation
   const startVideoCall = () => {
-    alert('Initiating Global WebRTC Video Call... (Connecting peer-to-peer server)');
+    router.push('/video');
   };
 
   if (loading) {
@@ -148,7 +149,7 @@ export default function ChatPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Video Call Icon */}
+          {/* Video Call Button */}
           <button 
             onClick={startVideoCall}
             title="Start Video Call"
@@ -157,7 +158,7 @@ export default function ChatPage() {
             📹
           </button>
 
-          {/* Lock Chat Icon / Controls */}
+          {/* Lock Chat Controls */}
           {!isLocked ? (
             <div className="flex items-center gap-1">
               <input
