@@ -2,12 +2,14 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import AgoraRTC from 'agora-rtc-sdk-ng';
 
 export default function VideoCallClient() {
   const router = useRouter();
   const [joined, setJoined] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const agoraClientRef = useRef(null);
@@ -17,36 +19,29 @@ export default function VideoCallClient() {
   const CHANNEL = 'wiftyup-room';
 
   useEffect(() => {
-    let isMounted = true;
+    // Disable noisy Agora SDK logs
+    AgoraRTC.setLogLevel(3);
 
-    const initAgora = async () => {
-      const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
-      if (!isMounted) return;
+    const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+    agoraClientRef.current = client;
 
-      const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-      agoraClientRef.current = client;
+    client.on('user-published', async (user, mediaType) => {
+      await client.subscribe(user, mediaType);
+      if (mediaType === 'video' && remoteVideoRef.current) {
+        user.videoTrack.play(remoteVideoRef.current);
+      }
+      if (mediaType === 'audio') {
+        user.audioTrack.play();
+      }
+    });
 
-      client.on('user-published', async (user, mediaType) => {
-        await client.subscribe(user, mediaType);
-        if (mediaType === 'video' && remoteVideoRef.current) {
-          user.videoTrack.play(remoteVideoRef.current);
-        }
-        if (mediaType === 'audio') {
-          user.audioTrack.play();
-        }
-      });
-
-      client.on('user-unpublished', () => {
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.innerHTML = '';
-        }
-      });
-    };
-
-    initAgora();
+    client.on('user-unpublished', () => {
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.innerHTML = '';
+      }
+    });
 
     return () => {
-      isMounted = false;
       leaveCall();
     };
   }, []);
@@ -57,33 +52,26 @@ export default function VideoCallClient() {
     setErrorMsg('');
 
     try {
-      // Step A: Trigger Browser Native Media Prompt First
-      const rawStream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
+      // Direct track creation inside synchronous user click event
+      const microphoneTrack = await AgoraRTC.createMicrophoneAudioTrack();
+      const cameraTrack = await AgoraRTC.createCameraVideoTrack({
+        encoderConfig: '360p_1',
       });
-
-      // Release native stream so Agora can lock the hardware
-      rawStream.getTracks().forEach((track) => track.stop());
-
-      const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
-
-      // Step B: Create Agora Tracks
-      const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
 
       await agoraClientRef.current.join(APP_ID, CHANNEL, null, null);
 
-      localTracksRef.current = [audioTrack, videoTrack];
+      localTracksRef.current = [microphoneTrack, cameraTrack];
 
       if (localVideoRef.current) {
-        videoTrack.play(localVideoRef.current);
+        localVideoRef.current.innerHTML = '';
+        cameraTrack.play(localVideoRef.current);
       }
 
-      await agoraClientRef.current.publish([audioTrack, videoTrack]);
+      await agoraClientRef.current.publish([microphoneTrack, cameraTrack]);
       setJoined(true);
     } catch (err) {
       console.error("Camera Init Error:", err);
-      setErrorMsg(`Access Failed: ${err?.message || "Camera permission issue"}`);
+      setErrorMsg(`Access Failed: ${err?.message || "Please check browser permissions"}`);
     } finally {
       setLoading(false);
     }
@@ -121,15 +109,15 @@ export default function VideoCallClient() {
 
       <div className="flex-1 w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-4 py-4 my-auto items-center">
         <div className="relative w-full h-64 md:h-80 bg-gray-900 rounded-2xl overflow-hidden border border-gray-800 flex items-center justify-center">
-          <div ref={localVideoRef} className="w-full h-full object-cover"></div>
-          <span className="absolute bottom-3 left-3 bg-black/60 px-2.5 py-1 rounded text-xs">
+          <div ref={localVideoRef} className="w-full h-full min-h-[250px] bg-black"></div>
+          <span className="absolute bottom-3 left-3 bg-black/60 px-2.5 py-1 rounded text-xs z-10">
             You (Local)
           </span>
         </div>
 
         <div className="relative w-full h-64 md:h-80 bg-gray-900 rounded-2xl overflow-hidden border border-gray-800 flex items-center justify-center">
-          <div ref={remoteVideoRef} className="w-full h-full object-cover"></div>
-          <span className="absolute bottom-3 left-3 bg-black/60 px-2.5 py-1 rounded text-xs">
+          <div ref={remoteVideoRef} className="w-full h-full min-h-[250px] bg-black"></div>
+          <span className="absolute bottom-3 left-3 bg-black/60 px-2.5 py-1 rounded text-xs z-10">
             Remote Peer
           </span>
         </div>
@@ -156,4 +144,3 @@ export default function VideoCallClient() {
     </div>
   );
 }
-
