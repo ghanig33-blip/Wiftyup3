@@ -8,8 +8,8 @@ export default function DirectVideoCall() {
   const [status, setStatus] = useState('Idle');
   const [inCall, setInCall] = useState(false);
 
-  // Updated App ID
-  const APP_ID = '7adde0bf395a465cbbf6f9925c13134b'; 
+  // Updated Testing Mode App ID
+  const APP_ID = '69e3edbbb2364bd495222e330004af2d'; 
   const CHANNEL = 'wiftyup-room';
 
   const startCallDirect = async () => {
