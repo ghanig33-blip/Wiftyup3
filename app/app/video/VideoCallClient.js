@@ -8,6 +8,7 @@ export default function VideoCallClient() {
   const [joined, setJoined] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const agoraClientRef = useRef(null);
@@ -59,35 +60,40 @@ export default function VideoCallClient() {
     try {
       const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
 
-      // Create local microphone and camera tracks
-      const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
-        {},
-        {
-          encoderConfig: {
-            width: 640,
-            height: 360,
-            frameRate: 15,
-            bitrateMin: 60,
-            bitrateMax: 400,
-          },
+      // Force Native Browser Permission Trigger
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        // Close native test stream immediately
+        stream.getTracks().forEach(track => track.stop());
+      } catch (e) {
+        console.warn("Native getUserMedia failed, attempting Agora track creation:", e);
+      }
+
+      // Create Agora Microphone and Camera tracks
+      const microphoneTrack = await AgoraRTC.createMicrophoneAudioTrack();
+      const cameraTrack = await AgoraRTC.createCameraVideoTrack({
+        encoderConfig: {
+          width: { max: 640 },
+          height: { max: 360 },
+          frameRate: 15,
         }
-      );
+      });
 
       await agoraClientRef.current.join(APP_ID, CHANNEL, null, null);
 
-      localTracksRef.current = [audioTrack, videoTrack];
+      localTracksRef.current = [microphoneTrack, cameraTrack];
 
-      // Play local video track
       if (localVideoRef.current) {
         localVideoRef.current.innerHTML = '';
-        videoTrack.play(localVideoRef.current);
+        cameraTrack.play(localVideoRef.current);
       }
 
-      await agoraClientRef.current.publish([audioTrack, videoTrack]);
+      await agoraClientRef.current.publish([microphoneTrack, cameraTrack]);
       setJoined(true);
     } catch (err) {
-      console.error("Camera Render Error:", err);
-      setErrorMsg(`Camera error: ${err?.message || 'Unable to render camera feed'}`);
+      console.error("Camera Init Error:", err);
+      setErrorMsg(err?.message || "Camera access failed. Please ensure permissions are allowed.");
     } finally {
       setLoading(false);
     }
