@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { db } from '../../lib/firebase'; // Ensure correct path to firebase config
+import { db } from '../../lib/firebase';
 import { 
   collection, 
   addDoc, 
@@ -16,7 +16,6 @@ export default function ChatPage() {
   const [inputText, setInputText] = useState('');
 
   useEffect(() => {
-    // Real-time listener for Firestore messages
     const q = query(collection(db, 'messages'), orderBy('createdAt', 'asc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       let msgs = [];
@@ -39,7 +38,7 @@ export default function ChatPage() {
       await addDoc(collection(db, 'messages'), {
         text: inputText,
         createdAt: serverTimestamp(),
-        user: 'User' // Temporary user placeholder
+        user: 'User'
       });
       setInputText('');
     } catch (err) {
@@ -53,7 +52,6 @@ export default function ChatPage() {
         WiftyUp Live Chat
       </header>
 
-      {/* Messages Feed */}
       <div className="flex-1 overflow-y-auto py-4 space-y-3">
         {messages.length === 0 ? (
           <p className="text-center text-gray-500">No messages yet. Say hi!</p>
@@ -66,7 +64,6 @@ export default function ChatPage() {
         )}
       </div>
 
-      {/* Message Input */}
       <form onSubmit={handleSendMessage} className="flex gap-2 pt-2 border-t border-gray-800">
         <input
           type="text"
