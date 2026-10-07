@@ -22,13 +22,23 @@ export default function VideoCallClient() {
     setErrorMsg('');
 
     try {
-      // 1. Direct browser API execution (Guarantees prompt modal in Chrome)
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640 }, height: { ideal: 360 } },
-        audio: true
-      });
+      let mediaStream;
+      
+      // Step 1: Try requesting both Video and Audio
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 360 } },
+          audio: true
+        });
+      } catch (err) {
+        console.warn("Combined access failed, trying Video only fallback...", err);
+        // Step 2: Fallback to Video ONLY if combined request failed
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 360 } },
+          audio: false
+        });
+      }
 
-      // 2. Load Agora SDK dynamically ONLY AFTER media access is granted
       const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
       AgoraRTC.setLogLevel(3);
 
@@ -51,32 +61,37 @@ export default function VideoCallClient() {
         }
       });
 
-      // 3. Extract raw tracks into Agora Custom Tracks
+      // Prepare Tracks
       const videoTrackRaw = mediaStream.getVideoTracks()[0];
-      const audioTrackRaw = mediaStream.getAudioTracks()[0];
-
       const cameraTrack = AgoraRTC.createCustomVideoTrack({
         mediaStreamTrack: videoTrackRaw,
       });
 
-      const microphoneTrack = AgoraRTC.createCustomAudioTrack({
-        mediaStreamTrack: audioTrackRaw,
-      });
+      let tracksToPublish = [cameraTrack];
+
+      // Attach audio if available
+      const audioTrackRaw = mediaStream.getAudioTracks()[0];
+      if (audioTrackRaw) {
+        const microphoneTrack = AgoraRTC.createCustomAudioTrack({
+          mediaStreamTrack: audioTrackRaw,
+        });
+        tracksToPublish.push(microphoneTrack);
+      }
 
       await client.join(APP_ID, CHANNEL, null, null);
-
-      localTracksRef.current = [microphoneTrack, cameraTrack];
+      localTracksRef.current = tracksToPublish;
 
       if (localVideoRef.current) {
         localVideoRef.current.innerHTML = '';
         cameraTrack.play(localVideoRef.current);
       }
 
-      await client.publish([microphoneTrack, cameraTrack]);
+      await client.publish(tracksToPublish);
       setJoined(true);
     } catch (err) {
-      console.error("Camera Custom Stream Error:", err);
-      setErrorMsg(`Camera Access Denied: ${err?.message || "Please check browser permissions"}`);
+      console.error("Camera Init Final Error:", err);
+      alert("Browser Permission Blocked! Chrome Settings -> Site Settings -> Camera/Microphone me ja kar wiftyup3.vercel.app ko ALLOW karein.");
+      setErrorMsg(`Access Error: ${err?.message || "Camera access failed"}`);
     } finally {
       setLoading(false);
     }
