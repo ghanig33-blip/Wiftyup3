@@ -1,22 +1,62 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { getAuth } from 'firebase/auth';
+import { 
+  getFirestore, 
+  collection, 
+  addDoc, 
+  query, 
+  orderBy, 
+  onSnapshot, 
+  serverTimestamp 
+} from 'firebase/firestore';
+import { app } from '@/lib/firebase'; // Apne firebase config file ka path check kar lein
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState([
-    { id: 1, sender: 'Sana', text: 'Hey! Welcome to WiftyUp 👋', time: '2m ago' },
-    { id: 2, sender: 'Tech Vision', text: 'Check out the new community.', time: '18m ago' },
-  ]);
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
+  const [user, setUser] = useState(null);
 
-  const handleSend = () => {
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  useEffect(() => {
+    // Current user check
+    const currentUser = auth.currentUser;
+    if (currentUser) {
+      setUser(currentUser);
+    }
+
+    // Real-time Firestore Messages Listener
+    const q = query(collection(db, 'messages'), orderBy('createdAt', 'asc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      let msgs = [];
+      snapshot.forEach((doc) => {
+        msgs.push({ id: doc.id, ...doc.data() });
+      });
+      setMessages(msgs);
+    });
+
+    return () => unsubscribe();
+  }, [auth, db]);
+
+  // Send Message function
+  const handleSend = async () => {
     if (!input.trim()) return;
-    setMessages((prev) => [
-      ...prev,
-      { id: Date.now(), sender: 'Me', text: input, time: 'Just now' }
-    ]);
-    setInput('');
+
+    try {
+      await addDoc(collection(db, 'messages'), {
+        text: input,
+        sender: user?.email || user?.phoneNumber || 'User',
+        senderId: user?.uid || 'guest',
+        createdAt: serverTimestamp(),
+      });
+      setInput('');
+    } catch (error) {
+      console.error("Error sending message: ", error);
+    }
   };
 
   const startCall = (type) => {
@@ -33,11 +73,11 @@ export default function ChatPage() {
           </Link>
           <div>
             <h2 className="font-bold text-lg">Global Chat</h2>
-            <span className="text-xs text-green-400">● Encrypted & Active</span>
+            <span className="text-xs text-green-400">● Real-time Encrypted</span>
           </div>
         </div>
 
-        {/* Action Buttons for Audio & Video Call */}
+        {/* Action Buttons for Calling */}
         <div className="flex gap-2">
           <button 
             onClick={() => startCall('Audio')} 
@@ -54,27 +94,30 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* Messages List */}
+      {/* Messages Feed */}
       <div className="flex-1 p-4 overflow-y-auto space-y-4">
-        {messages.map((msg) => (
-          <div 
-            key={msg.id} 
-            className={`flex flex-col ${msg.sender === 'Me' ? 'items-end' : 'items-start'}`}
-          >
-            <span className="text-[10px] text-gray-400 mb-1 px-1">
-              {msg.sender} • {msg.time}
-            </span>
+        {messages.map((msg) => {
+          const isMe = msg.senderId === user?.uid;
+          return (
             <div 
-              className={`p-3 rounded-2xl max-w-[80%] text-sm ${
-                msg.sender === 'Me' 
-                  ? 'bg-purple-600 text-white rounded-br-none' 
-                  : 'bg-gray-800 text-gray-100 rounded-bl-none'
-              }`}
+              key={msg.id} 
+              className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
             >
-              {msg.text}
+              <span className="text-[10px] text-gray-400 mb-1 px-1">
+                {msg.sender}
+              </span>
+              <div 
+                className={`p-3 rounded-2xl max-w-[80%] text-sm ${
+                  isMe 
+                    ? 'bg-purple-600 text-white rounded-br-none' 
+                    : 'bg-gray-800 text-gray-100 rounded-bl-none'
+                }`}
+              >
+                {msg.text}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Input Field */}
@@ -96,4 +139,3 @@ export default function ChatPage() {
     </div>
   );
 }
-
