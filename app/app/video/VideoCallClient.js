@@ -59,43 +59,35 @@ export default function VideoCallClient() {
     try {
       const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
 
-      // Pure fallback media track stream
-      let videoTrack, audioTrack;
-      try {
-        videoTrack = await AgoraRTC.createCameraVideoTrack();
-      } catch (e) {
-        console.warn("Video block:", e);
-      }
-
-      try {
-        audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
-      } catch (e) {
-        console.warn("Audio block:", e);
-      }
-
-      if (!videoTrack && !audioTrack) {
-        setErrorMsg("Camera or Microphone access was denied or unavailable.");
-        setLoading(false);
-        return;
-      }
+      // Create local microphone and camera tracks
+      const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
+        {},
+        {
+          encoderConfig: {
+            width: 640,
+            height: 360,
+            frameRate: 15,
+            bitrateMin: 60,
+            bitrateMax: 400,
+          },
+        }
+      );
 
       await agoraClientRef.current.join(APP_ID, CHANNEL, null, null);
 
-      const tracksToPublish = [];
-      if (audioTrack) tracksToPublish.push(audioTrack);
-      if (videoTrack) {
-        tracksToPublish.push(videoTrack);
-        if (localVideoRef.current) {
-          videoTrack.play(localVideoRef.current);
-        }
+      localTracksRef.current = [audioTrack, videoTrack];
+
+      // Play local video track
+      if (localVideoRef.current) {
+        localVideoRef.current.innerHTML = '';
+        videoTrack.play(localVideoRef.current);
       }
 
-      localTracksRef.current = tracksToPublish;
-      await agoraClientRef.current.publish(tracksToPublish);
+      await agoraClientRef.current.publish([audioTrack, videoTrack]);
       setJoined(true);
     } catch (err) {
-      console.error("Join call failed:", err);
-      setErrorMsg("Failed to join video call.");
+      console.error("Camera Render Error:", err);
+      setErrorMsg(`Camera error: ${err?.message || 'Unable to render camera feed'}`);
     } finally {
       setLoading(false);
     }
@@ -133,15 +125,15 @@ export default function VideoCallClient() {
 
       <div className="flex-1 w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-4 py-4 my-auto items-center">
         <div className="relative w-full h-64 md:h-80 bg-gray-900 rounded-2xl overflow-hidden border border-gray-800 flex items-center justify-center">
-          <div ref={localVideoRef} className="w-full h-full object-cover"></div>
-          <span className="absolute bottom-3 left-3 bg-black/60 px-2.5 py-1 rounded text-xs">
+          <div ref={localVideoRef} className="w-full h-full min-h-[250px] bg-black"></div>
+          <span className="absolute bottom-3 left-3 bg-black/60 px-2.5 py-1 rounded text-xs z-10">
             You (Local)
           </span>
         </div>
 
         <div className="relative w-full h-64 md:h-80 bg-gray-900 rounded-2xl overflow-hidden border border-gray-800 flex items-center justify-center">
-          <div ref={remoteVideoRef} className="w-full h-full object-cover"></div>
-          <span className="absolute bottom-3 left-3 bg-black/60 px-2.5 py-1 rounded text-xs">
+          <div ref={remoteVideoRef} className="w-full h-full min-h-[250px] bg-black"></div>
+          <span className="absolute bottom-3 left-3 bg-black/60 px-2.5 py-1 rounded text-xs z-10">
             Remote Peer
           </span>
         </div>
@@ -168,4 +160,3 @@ export default function VideoCallClient() {
     </div>
   );
 }
-
