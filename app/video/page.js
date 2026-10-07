@@ -1,142 +1,91 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
 
-export default function VideoCallPage() {
-  const router = useRouter();
-  const [joined, setJoined] = useState(false);
-  const [loading, setLoading] = useState(false);
+export default function DirectVideoCall() {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
-  const agoraClientRef = useRef(null);
-  const localTracksRef = useRef([]);
+  const [status, setStatus] = useState('Idle');
+  const [inCall, setInCall] = useState(false);
 
-  const APP_ID = 'fe1f95d122e24d269877eb372e915fa8'; 
+  const APP_ID = 'fe1f95d122e24d269877eb372e915fa8';
   const CHANNEL = 'wiftyup-room';
 
-  useEffect(() => {
-    let isMounted = true;
-
-    const initAgora = async () => {
-      if (typeof window !== 'undefined') {
-        const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
-        if (!isMounted) return;
-
-        const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-        agoraClientRef.current = client;
-
-        client.on('user-published', async (user, mediaType) => {
-          await client.subscribe(user, mediaType);
-          if (mediaType === 'video' && remoteVideoRef.current) {
-            user.videoTrack.play(remoteVideoRef.current);
-          }
-          if (mediaType === 'audio') {
-            user.audioTrack.play();
-          }
-        });
-
-        client.on('user-unpublished', () => {
-          if (remoteVideoRef.current) {
-            remoteVideoRef.current.innerHTML = '';
-          }
-        });
-      }
-    };
-
-    initAgora();
-
-    return () => {
-      isMounted = false;
-      leaveCall();
-    };
-  }, []);
-
-  const joinCall = async () => {
-    if (!agoraClientRef.current || typeof window === 'undefined') return;
-    setLoading(true);
-
+  const startCallDirect = async () => {
+    setStatus('Requesting Media Permissions...');
     try {
-      // Direct Navigator MediaDevices Permission Check
-      await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      // Direct raw media stream trigger (bypass Next.js hydration lock)
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
+      });
 
-      const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
-      await agoraClientRef.current.join(APP_ID, CHANNEL, null, null);
-      
-      const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
-      localTracksRef.current = [audioTrack, videoTrack];
+      setStatus('Camera Granted! Loading Calling Engine...');
 
       if (localVideoRef.current) {
-        videoTrack.play(localVideoRef.current);
+        localVideoRef.current.srcObject = stream;
+        localVideoRef.current.play();
       }
-      await agoraClientRef.current.publish([audioTrack, videoTrack]);
-      setJoined(true);
-    } catch (err) {
-      console.error("Camera/Mic Permission Error:", err);
-      alert("Browser Permission Blocked! Chrome Settings -> Site Settings -> Camera/Microphone me ja kar wiftyup3.vercel.app ko ALLOW karein.");
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const leaveCall = async () => {
-    if (localTracksRef.current.length > 0) {
-      localTracksRef.current.forEach((track) => {
-        track.stop();
-        track.close();
+      // Load Agora SDK dynamically strictly post permission grant
+      const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
+      const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+
+      client.on('user-published', async (user, mediaType) => {
+        await client.subscribe(user, mediaType);
+        if (mediaType === 'video' && remoteVideoRef.current) {
+          user.videoTrack.play(remoteVideoRef.current);
+        }
+        if (mediaType === 'audio') {
+          user.audioTrack.play();
+        }
       });
-      localTracksRef.current = [];
+
+      await client.join(APP_ID, CHANNEL, null, null);
+
+      const videoTrack = stream.getVideoTracks()[0];
+      const audioTrack = stream.getAudioTracks()[0];
+
+      const customVideoTrack = AgoraRTC.createCustomVideoTrack({ mediaStreamTrack: videoTrack });
+      const customAudioTrack = AgoraRTC.createCustomAudioTrack({ mediaStreamTrack: audioTrack });
+
+      await client.publish([customVideoTrack, customAudioTrack]);
+
+      setInCall(true);
+      setStatus('Connected & Streaming Live');
+    } catch (err) {
+      console.error(err);
+      setStatus(`Error: ${err.message || 'Permission Blocked by OS'}`);
+      alert(`Camera/Mic Trigger Failed: ${err.message}`);
     }
-    if (agoraClientRef.current) {
-      await agoraClientRef.current.leave();
-    }
-    setJoined(false);
-    router.push('/chat');
   };
 
   return (
-    <div className="flex flex-col items-center justify-between h-screen bg-gray-950 text-white p-4">
-      <div className="w-full max-w-4xl flex justify-between items-center py-2 border-b border-gray-800">
-        <h1 className="text-lg font-bold text-blue-500">WiftyUp HD Video Call</h1>
-        <span className="text-xs bg-green-500/20 text-green-400 px-3 py-1 rounded-full border border-green-500/30">
-          Global Low-Latency
-        </span>
-      </div>
+    <div style={{ backgroundColor: '#090d16', color: '#fff', minHeight: '100vh', padding: '20px', fontFamily: 'sans-serif', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      <h2>WiftyUp Direct Media Call</h2>
+      <p style={{ fontSize: '12px', color: '#a0aec0' }}>Status: {status}</p>
 
-      <div className="flex-1 w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-4 py-4 my-auto items-center">
-        <div className="relative w-full h-64 md:h-80 bg-gray-900 rounded-2xl overflow-hidden border border-gray-800 flex items-center justify-center">
-          <div ref={localVideoRef} className="w-full h-full object-cover"></div>
-          <span className="absolute bottom-3 left-3 bg-black/60 px-2.5 py-1 rounded text-xs">
-            You (Local)
-          </span>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '15px', width: '100%', maxWidth: '500px', margin: '20px 0' }}>
+        <div style={{ background: '#1a202c', borderRadius: '12px', height: '220px', overflow: 'hidden', position: 'relative' }}>
+          <video ref={localVideoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <span style={{ position: 'absolute', bottom: '8px', left: '8px', background: 'rgba(0,0,0,0.6)', padding: '2px 8px', borderRadius: '4px', fontSize: '10px' }}>You (Local)</span>
         </div>
 
-        <div className="relative w-full h-64 md:h-80 bg-gray-900 rounded-2xl overflow-hidden border border-gray-800 flex items-center justify-center">
-          <div ref={remoteVideoRef} className="w-full h-full object-cover"></div>
-          <span className="absolute bottom-3 left-3 bg-black/60 px-2.5 py-1 rounded text-xs">
-            Remote Peer
-          </span>
+        <div style={{ background: '#1a202c', borderRadius: '12px', height: '220px', overflow: 'hidden', position: 'relative' }}>
+          <div ref={remoteVideoRef} style={{ width: '100%', height: '100%' }} />
+          <span style={{ position: 'absolute', bottom: '8px', left: '8px', background: 'rgba(0,0,0,0.6)', padding: '2px 8px', borderRadius: '4px', fontSize: '10px' }}>Remote User</span>
         </div>
       </div>
 
-      <div className="pb-6 flex items-center gap-4">
-        {!joined ? (
-          <button
-            onClick={joinCall}
-            disabled={loading}
-            className="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white font-semibold px-8 py-3 rounded-full flex items-center gap-2 shadow-lg transition"
-          >
-            {loading ? 'Connecting...' : '📹 Start Call'}
-          </button>
-        ) : (
-          <button
-            onClick={leaveCall}
-            className="bg-red-600 hover:bg-red-700 text-white font-semibold px-8 py-3 rounded-full flex items-center gap-2 shadow-lg transition"
-          >
-            🚫 End Call
-          </button>
-        )}
-      </div>
+      {!inCall ? (
+        <button onClick={startCallDirect} style={{ background: '#22c55e', color: '#fff', padding: '14px 28px', borderRadius: '30px', border: 'none', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer' }}>
+          📹 Start Direct Call
+        </button>
+      ) : (
+        <button onClick={() => window.location.reload()} style={{ background: '#ef4444', color: '#fff', padding: '14px 28px', borderRadius: '30px', border: 'none', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer' }}>
+          🚫 End Call
+        </button>
+      )}
     </div>
   );
 }
