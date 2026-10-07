@@ -40,8 +40,8 @@ export default function DirectVideoCall() {
         }
       });
 
-      // Token parameter explicitly set to empty string ""
-      await client.join(APP_ID.trim(), CHANNEL, "", null);
+      // Fixed join signature for No-Token / Testing Mode
+      await client.join(APP_ID.trim(), CHANNEL, null);
 
       const videoTrack = stream.getVideoTracks()[0];
       const audioTrack = stream.getAudioTracks()[0];
