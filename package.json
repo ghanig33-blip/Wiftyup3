@@ -1,17 +1,18 @@
 {
-  "name": "wiftyup3",
+  "name": "wiftyup",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "lint": "next lint"
   },
   "dependencies": {
+    "agora-rtc-sdk-ng": "^4.20.0",
     "firebase": "^10.8.0",
-    "next": "latest",
-    "react": "latest",
-    "react-dom": "latest"
+    "next": "14.1.0",
+    "react": "^18",
+    "react-dom": "^18"
   }
 }
-
