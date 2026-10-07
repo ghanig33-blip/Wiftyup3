@@ -19,7 +19,6 @@ export default function VideoCallClient() {
   const CHANNEL = 'wiftyup-room';
 
   useEffect(() => {
-    // Disable noisy Agora SDK logs
     AgoraRTC.setLogLevel(3);
 
     const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
@@ -52,12 +51,25 @@ export default function VideoCallClient() {
     setErrorMsg('');
 
     try {
-      // Direct track creation inside synchronous user click event
-      const microphoneTrack = await AgoraRTC.createMicrophoneAudioTrack();
-      const cameraTrack = await AgoraRTC.createCameraVideoTrack({
-        encoderConfig: '360p_1',
+      // 1. Force Native WebRTC Browser Media Access (Bypasses Agora Permission Restrictions)
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 360 }, facingMode: 'user' },
+        audio: true
       });
 
+      const videoTrackRaw = stream.getVideoTracks()[0];
+      const audioTrackRaw = stream.getAudioTracks()[0];
+
+      // 2. Convert Raw Browser Tracks into Agora Custom Tracks
+      const cameraTrack = AgoraRTC.createCustomVideoTrack({
+        mediaStreamTrack: videoTrackRaw,
+      });
+
+      const microphoneTrack = AgoraRTC.createCustomAudioTrack({
+        mediaStreamTrack: audioTrackRaw,
+      });
+
+      // 3. Join Channel and Publish Custom Native Stream
       await agoraClientRef.current.join(APP_ID, CHANNEL, null, null);
 
       localTracksRef.current = [microphoneTrack, cameraTrack];
@@ -70,8 +82,8 @@ export default function VideoCallClient() {
       await agoraClientRef.current.publish([microphoneTrack, cameraTrack]);
       setJoined(true);
     } catch (err) {
-      console.error("Camera Init Error:", err);
-      setErrorMsg(`Access Failed: ${err?.message || "Please check browser permissions"}`);
+      console.error("Camera Custom Stream Error:", err);
+      setErrorMsg(`Access Error: ${err?.message || "Camera permissions denied by browser"}`);
     } finally {
       setLoading(false);
     }
