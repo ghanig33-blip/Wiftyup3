@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { auth, db } from '../../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { 
@@ -13,19 +14,25 @@ import {
 } from 'firebase/firestore';
 
 export default function ChatPage() {
+  const router = useRouter();
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [currentUser, setCurrentUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Auth state listen karein
+    // Auth state listener with route protection
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (user) {
         setCurrentUser(user);
+        setLoading(false);
+      } else {
+        // Agar user login nahi hai, login page par redirect kar do
+        router.push('/');
       }
     });
 
-    // Real-time messages fetch karein
+    // Real-time messages listener
     const q = query(collection(db, 'messages'), orderBy('createdAt', 'asc'));
     const unsubscribeChat = onSnapshot(q, (snapshot) => {
       let msgs = [];
@@ -39,13 +46,13 @@ export default function ChatPage() {
       unsubscribeAuth();
       unsubscribeChat();
     };
-  }, []);
+  }, [router]);
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!inputText.trim()) return;
 
-    const senderName = currentUser?.phoneNumber || currentUser?.email || 'Anonymous';
+    const senderName = currentUser?.phoneNumber || currentUser?.email || 'User';
 
     try {
       await addDoc(collection(db, 'messages'), {
@@ -60,12 +67,20 @@ export default function ChatPage() {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-900 text-white">
+        <p className="text-gray-400 font-medium">Checking authentication...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-white p-4">
       <header className="py-4 border-b border-gray-800 text-center text-xl font-bold flex justify-between items-center px-4">
         <span>WiftyUp Live Chat</span>
-        <span className="text-sm font-normal text-gray-400">
-          {currentUser ? (currentUser.phoneNumber || currentUser.email) : 'Not Logged In'}
+        <span className="text-xs font-normal text-blue-400 bg-gray-800 px-3 py-1 rounded-full">
+          {currentUser?.phoneNumber || currentUser?.email || 'Logged In'}
         </span>
       </header>
 
