@@ -8,7 +8,6 @@ export default function DirectVideoCall() {
   const [status, setStatus] = useState('Idle');
   const [inCall, setInCall] = useState(false);
 
-  // Updated Testing Mode App ID
   const APP_ID = '69e3edbbb2364bd495222e330004af2d'; 
   const CHANNEL = 'wiftyup-room';
 
@@ -41,7 +40,8 @@ export default function DirectVideoCall() {
         }
       });
 
-      await client.join(APP_ID.trim(), CHANNEL, null, null);
+      // Token parameter explicitly set to empty string ""
+      await client.join(APP_ID.trim(), CHANNEL, "", null);
 
       const videoTrack = stream.getVideoTracks()[0];
       const audioTrack = stream.getAudioTracks()[0];
