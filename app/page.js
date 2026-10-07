@@ -1,116 +1,140 @@
 'use client';
 
 import { useState } from 'react';
-import { auth, db } from '../lib/firebase';
+import { useRouter } from 'next/navigation';
+import { auth } from '../lib/firebase';
 import { 
-  signInWithPhoneNumber, 
-  RecaptchaVerifier 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword,
+  GoogleAuthProvider,
+  signInWithPopup
 } from 'firebase/auth';
 
-export default function Home() {
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [otp, setOtp] = useState('');
-  const [confirmationResult, setConfirmationResult] = useState(null);
-  const [message, setMessage] = useState('');
+export default function LoginPage() {
+  const router = useRouter();
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
 
-  const setupRecaptcha = () => {
-    if (!window.recaptchaVerifier) {
-      window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-        size: 'invisible',
-        callback: (response) => {
-          console.log("Recaptcha verified");
-        }
-      });
+  // Email/Password Auth
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    try {
+      if (isSignUp) {
+        await createUserWithEmailAndPassword(auth, email, password);
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+      }
+      router.push('/chat');
+    } catch (err) {
+      setError(err.message.replace('Firebase: ', ''));
     }
   };
 
-  const handleSendOtp = async (e) => {
-    e.preventDefault();
-    setMessage('');
-    setupRecaptcha();
-    const appVerifier = window.recaptchaVerifier;
-
+  // Google Auth
+  const handleGoogleSignIn = async () => {
+    setError('');
+    const provider = new GoogleAuthProvider();
     try {
-      const confirmation = await signInWithPhoneNumber(auth, phoneNumber, appVerifier);
-      setConfirmationResult(confirmation);
-      setMessage('OTP sent successfully!');
-    } catch (error) {
-      console.error(error);
-      setMessage('Error sending OTP: ' + error.message);
-    }
-  };
-
-  const handleVerifyOtp = async (e) => {
-    e.preventDefault();
-    setMessage('');
-
-    if (!confirmationResult) return;
-
-    try {
-      await confirmationResult.confirm(otp);
-      setMessage('Phone number verified successfully!');
-      window.location.href = '/chat';
-    } catch (error) {
-      console.error(error);
-      setMessage('Invalid OTP: ' + error.message);
+      await signInWithPopup(auth, provider);
+      router.push('/chat');
+    } catch (err) {
+      setError(err.message.replace('Firebase: ', ''));
     }
   };
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-6 bg-gray-900 text-white">
-      <div id="recaptcha-container"></div>
-      
-      <div className="w-full max-w-md bg-gray-800 p-8 rounded-xl shadow-lg border border-gray-700">
-        <h1 className="text-2xl font-bold text-center mb-6">WiftyUp Login</h1>
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white p-6">
+      <div className="bg-gray-800 p-8 rounded-xl border border-gray-700 max-w-sm w-full space-y-4">
+        <h1 className="text-2xl font-bold text-center">
+          {isSignUp ? 'Create WiftyUp Account' : 'WiftyUp Login'}
+        </h1>
 
-        {message && (
-          <div className="mb-4 p-3 bg-blue-900/50 border border-blue-500 rounded text-sm text-center">
-            {message}
+        {error && (
+          <div className="bg-red-900/50 border border-red-500 text-red-200 text-sm p-3 rounded-lg text-center">
+            {error}
           </div>
         )}
 
-        {!confirmationResult ? (
-          <form onSubmit={handleSendOtp} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Phone Number</label>
-              <input
-                type="tel"
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
-                placeholder="+923001234567"
-                required
-                className="w-full p-3 bg-gray-700 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <button
-              type="submit"
-              className="w-full py-3 bg-blue-600 hover:bg-blue-700 rounded font-semibold transition"
-            >
-              Send OTP
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={handleVerifyOtp} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Enter OTP</label>
-              <input
-                type="text"
-                value={otp}
-                onChange={(e) => setOtp(e.target.value)}
-                placeholder="6-digit code"
-                required
-                className="w-full p-3 bg-gray-700 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <button
-              type="submit"
-              className="w-full py-3 bg-green-600 hover:bg-green-700 rounded font-semibold transition"
-            >
-              Verify OTP
-            </button>
-          </form>
-        )}
+        <form onSubmit={handleAuth} className="space-y-4">
+          <div>
+            <label className="text-xs text-gray-400 block mb-1">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="name@example.com"
+              required
+              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-400 block mb-1">Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              required
+              className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <button
+            type="submit"
+            className="w-full py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold transition"
+          >
+            {isSignUp ? 'Sign Up' : 'Log In'}
+          </button>
+        </form>
+
+        <div className="relative flex py-2 items-center">
+          <div className="flex-grow border-t border-gray-700"></div>
+          <span className="flex-shrink mx-2 text-gray-400 text-xs">OR</span>
+          <div className="flex-grow border-t border-gray-700"></div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleGoogleSignIn}
+          className="w-full py-2 bg-white text-gray-900 font-semibold rounded-lg hover:bg-gray-100 flex items-center justify-center gap-2 transition"
+        >
+          <svg className="w-5 h-5" viewBox="0 0 24 24">
+            <path
+              fill="#4285F4"
+              d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+            />
+            <path
+              fill="#34A853"
+              d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+            />
+            <path
+              fill="#FBBC05"
+              d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+            />
+            <path
+              fill="#EA4335"
+              d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+            />
+          </svg>
+          Sign in with Google
+        </button>
+
+        <p className="text-xs text-center text-gray-400 mt-4">
+          {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
+          <button
+            type="button"
+            onClick={() => setIsSignUp(!isSignUp)}
+            className="text-blue-400 underline font-semibold ml-1"
+          >
+            {isSignUp ? 'Log In' : 'Sign Up'}
+          </button>
+        </p>
       </div>
-    </main>
+    </div>
   );
 }
