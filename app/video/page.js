@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 export default function VideoCallPage() {
   const router = useRouter();
   const [joined, setJoined] = useState(false);
+  const [loading, setLoading] = useState(false);
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const agoraClientRef = useRef(null);
@@ -53,10 +54,15 @@ export default function VideoCallPage() {
 
   const joinCall = async () => {
     if (!agoraClientRef.current || typeof window === 'undefined') return;
-    const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
+    setLoading(true);
 
     try {
+      // Direct Navigator MediaDevices Permission Check
+      await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+
+      const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
       await agoraClientRef.current.join(APP_ID, CHANNEL, null, null);
+      
       const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
       localTracksRef.current = [audioTrack, videoTrack];
 
@@ -66,8 +72,10 @@ export default function VideoCallPage() {
       await agoraClientRef.current.publish([audioTrack, videoTrack]);
       setJoined(true);
     } catch (err) {
-      console.error("Failed to join video call:", err);
-      alert("Microphone & Camera permission required for Video Calling.");
+      console.error("Camera/Mic Permission Error:", err);
+      alert("Browser Permission Blocked! Chrome Settings -> Site Settings -> Camera/Microphone me ja kar wiftyup3.vercel.app ko ALLOW karein.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -115,9 +123,10 @@ export default function VideoCallPage() {
         {!joined ? (
           <button
             onClick={joinCall}
-            className="bg-green-600 hover:bg-green-700 text-white font-semibold px-8 py-3 rounded-full flex items-center gap-2 shadow-lg transition"
+            disabled={loading}
+            className="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white font-semibold px-8 py-3 rounded-full flex items-center gap-2 shadow-lg transition"
           >
-            📹 Start Call
+            {loading ? 'Connecting...' : '📹 Start Call'}
           </button>
         ) : (
           <button
@@ -131,4 +140,3 @@ export default function VideoCallPage() {
     </div>
   );
 }
-
