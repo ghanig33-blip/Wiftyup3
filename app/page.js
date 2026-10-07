@@ -1,145 +1,116 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { auth, db } from '../lib/firebase';
 import { 
-  getAuth, 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  RecaptchaVerifier, 
-  signInWithPhoneNumber 
+  signInWithPhoneNumber, 
+  RecaptchaVerifier 
 } from 'firebase/auth';
-import { app } from '@/lib/firebase'; // Ya jo bhi aapka firebase config path hai
 
 export default function Home() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [otp, setOtp] = useState('');
   const [confirmationResult, setConfirmationResult] = useState(null);
-  const [status, setStatus] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
 
-  const router = useRouter();
-  const auth = getAuth(app);
-
-  useEffect(() => {
+  const setupRecaptcha = () => {
     if (!window.recaptchaVerifier) {
       window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
         size: 'invisible',
+        callback: (response) => {
+          console.log("Recaptcha verified");
+        }
       });
     }
-  }, [auth]);
-
-  // 1. Google Sign-In
-  const handleGoogleSignIn = async () => {
-    try {
-      setLoading(true);
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-      setStatus('Google Sign-In Successful!');
-      router.push('/dashboard');
-    } catch (error) {
-      setStatus(`Google Error: ${error.message}`);
-    } finally {
-      setLoading(false);
-    }
   };
 
-  // 2. Send OTP
-  const handleSendOtp = async () => {
+  const handleSendOtp = async (e) => {
+    e.preventDefault();
+    setMessage('');
+    setupRecaptcha();
+    const appVerifier = window.recaptchaVerifier;
+
     try {
-      setLoading(true);
-      setStatus('Sending OTP...');
-      const appVerifier = window.recaptchaVerifier;
       const confirmation = await signInWithPhoneNumber(auth, phoneNumber, appVerifier);
       setConfirmationResult(confirmation);
-      setStatus('OTP Sent successfully! Check your phone.');
+      setMessage('OTP sent successfully!');
     } catch (error) {
-      setStatus(`Phone Error: ${error.message}`);
-    } finally {
-      setLoading(false);
+      console.error(error);
+      setMessage('Error sending OTP: ' + error.message);
     }
   };
 
-  // 3. Verify OTP
-  const handleVerifyOtp = async () => {
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    setMessage('');
+
+    if (!confirmationResult) return;
+
     try {
-      setLoading(true);
-      setStatus('Verifying OTP...');
       await confirmationResult.confirm(otp);
-      setStatus('Phone Auth Successful!');
-      router.push('/dashboard');
+      setMessage('Phone number verified successfully!');
+      window.location.href = '/chat';
     } catch (error) {
-      setStatus(`OTP Error: ${error.message}`);
-    } finally {
-      setLoading(false);
+      console.error(error);
+      setMessage('Invalid OTP: ' + error.message);
     }
   };
 
   return (
-    <main className="min-h-screen p-8 max-w-md mx-auto flex flex-col gap-6">
-      <h1 className="text-2xl font-bold">WiftyUp Auth Testing</h1>
-
-      {status && (
-        <div className="p-3 bg-gray-800 text-white rounded text-sm break-words">
-          <strong>Status:</strong> {status}
-        </div>
-      )}
-
-      {/* Recaptcha Container */}
+    <main className="flex min-h-screen flex-col items-center justify-center p-6 bg-gray-900 text-white">
       <div id="recaptcha-container"></div>
+      
+      <div className="w-full max-w-md bg-gray-800 p-8 rounded-xl shadow-lg border border-gray-700">
+        <h1 className="text-2xl font-bold text-center mb-6">WiftyUp Login</h1>
 
-      {/* Google Auth */}
-      <section className="border-t pt-4">
-        <h2 className="font-semibold mb-2">1. Google Auth</h2>
-        <button
-          onClick={handleGoogleSignIn}
-          disabled={loading}
-          className="bg-white text-black px-4 py-2 rounded font-medium border"
-        >
-          Sign in with Google
-        </button>
-      </section>
+        {message && (
+          <div className="mb-4 p-3 bg-blue-900/50 border border-blue-500 rounded text-sm text-center">
+            {message}
+          </div>
+        )}
 
-      {/* Phone Auth */}
-      <section className="border-t pt-4 flex flex-col gap-3">
-        <h2 className="font-semibold">2. Phone Auth</h2>
-        
         {!confirmationResult ? (
-          <>
-            <input
-              type="text"
-              placeholder="+923001234567"
-              value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value)}
-              className="p-2 border rounded text-black"
-            />
+          <form onSubmit={handleSendOtp} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Phone Number</label>
+              <input
+                type="tel"
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+                placeholder="+923001234567"
+                required
+                className="w-full p-3 bg-gray-700 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
             <button
-              onClick={handleSendOtp}
-              disabled={loading}
-              className="bg-blue-600 text-white px-4 py-2 rounded font-medium"
+              type="submit"
+              className="w-full py-3 bg-blue-600 hover:bg-blue-700 rounded font-semibold transition"
             >
               Send OTP
             </button>
-          </>
+          </form>
         ) : (
-          <>
-            <input
-              type="text"
-              placeholder="Enter OTP"
-              value={otp}
-              onChange={(e) => setOtp(e.target.value)}
-              className="p-2 border rounded text-black"
-            />
+          <form onSubmit={handleVerifyOtp} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Enter OTP</label>
+              <input
+                type="text"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value)}
+                placeholder="6-digit code"
+                required
+                className="w-full p-3 bg-gray-700 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
             <button
-              onClick={handleVerifyOtp}
-              disabled={loading}
-              className="bg-green-600 text-white px-4 py-2 rounded font-medium"
+              type="submit"
+              className="w-full py-3 bg-green-600 hover:bg-green-700 rounded font-semibold transition"
             >
               Verify OTP
             </button>
-          </>
+          </form>
         )}
-      </section>
+      </div>
     </main>
   );
 }
