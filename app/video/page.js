@@ -1,104 +1,110 @@
-'use client';
+import React, { useState, useEffect } from 'react';
+import AgoraRTC from 'agora-rtc-sdk-ng';
 
-import { useRef, useState } from 'react';
+// --- CONFIGURATION ---
+const APP_ID = "A2eab83e53e1461f881ede90e5ce48ca"; // Aapki App ID
+const CHANNEL_NAME = "WiftyFreeCall"; // Project / Channel Name
 
-export default function DirectVideoCall() {
-  const localVideoRef = useRef(null);
-  const remoteVideoRef = useRef(null);
-  const [status, setStatus] = useState('Idle');
-  const [inCall, setInCall] = useState(false);
+// Testing Mode ke liye NULL rakha gaya hai (agar Temp Token use karna ho toh string yahan dein)
+const TOKEN = null; 
 
-  const APP_ID = 'a2eab83e53e1461f881ede90e5ce48ca'; 
-  const CHANNEL = 'wiftyup-room';
+const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
 
-  const startCallDirect = async () => {
-    setStatus('Camera & Mic Access Requesting...');
+export default function VideoCallApp() {
+  const [joined, setJoined] = useState(false);
+  const [localTracks, setLocalTracks] = useState({ videoTrack: null, audioTrack: null });
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const startCall = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true
-      });
+      setErrorMsg("");
+      
+      // 1. Channel join karein
+      const uid = await client.join(APP_ID, CHANNEL_NAME, TOKEN, null);
 
-      setStatus('Camera Granted! Fetching Security Token...');
+      // 2. Camera aur Microphone setup karein
+      const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
+      setLocalTracks({ audioTrack, videoTrack });
 
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-        localVideoRef.current.play();
-      }
+      // 3. Local Video Preview dikhaein
+      videoTrack.play('local-player');
 
-      // Automatically fetch token from server
-      let token = null;
-      try {
-        const res = await fetch(`/api/token?channel=${CHANNEL}`);
-        const data = await res.json();
-        token = data.token;
-      } catch (e) {
-        console.log("Token API Error:", e);
-      }
-
-      setStatus('Connecting to Agora Server...');
-
-      const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
-      AgoraRTC.setLogLevel(3);
-      const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-
-      client.on('user-published', async (user, mediaType) => {
-        await client.subscribe(user, mediaType);
-        if (mediaType === 'video' && remoteVideoRef.current) {
-          user.videoTrack.play(remoteVideoRef.current);
-        }
-        if (mediaType === 'audio') {
-          user.audioTrack.play();
-        }
-      });
-
-      await client.join(APP_ID.trim(), CHANNEL, token, null);
-
-      const videoTrack = stream.getVideoTracks()[0];
-      const audioTrack = stream.getAudioTracks()[0];
-
-      const tracksToPublish = [];
-      if (videoTrack) tracksToPublish.push(AgoraRTC.createCustomVideoTrack({ mediaStreamTrack: videoTrack }));
-      if (audioTrack) tracksToPublish.push(AgoraRTC.createCustomAudioTrack({ mediaStreamTrack: audioTrack }));
-
-      if (tracksToPublish.length > 0) {
-        await client.publish(tracksToPublish);
-      }
-
-      setInCall(true);
-      setStatus('Connected & Streaming Live!');
+      // 4. Video/Audio publish karein
+      await client.publish([audioTrack, videoTrack]);
+      setJoined(true);
     } catch (err) {
-      console.error(err);
-      setStatus(`Error: ${err.message}`);
-      alert(`Call Connection Failed: ${err.message}`);
+      console.error("Agora Call Error:", err);
+      setErrorMsg(err.message || "Failed to start call");
     }
   };
 
-  return (
-    <div style={{ backgroundColor: '#090d16', color: '#fff', minHeight: '100vh', padding: '20px', fontFamily: 'sans-serif', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-      <h2 style={{ margin: '10px 0' }}>WiftyUp HD Video Call</h2>
-      <p style={{ fontSize: '13px', color: '#a0aec0', marginBottom: '20px' }}>Status: {status}</p>
+  const leaveCall = async () => {
+    // Tracks close karein
+    if (localTracks.audioTrack) localTracks.audioTrack.close();
+    if (localTracks.videoTrack) localTracks.videoTrack.close();
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '15px', width: '100%', maxWidth: '500px', margin: '10px 0' }}>
-        <div style={{ background: '#1a202c', borderRadius: '12px', height: '220px', overflow: 'hidden', position: 'relative' }}>
-          <video ref={localVideoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          <span style={{ position: 'absolute', bottom: '8px', left: '8px', background: 'rgba(0,0,0,0.6)', padding: '2px 8px', borderRadius: '4px', fontSize: '10px' }}>You (Local)</span>
+    // Channel leave karein
+    await client.leave();
+    setJoined(false);
+  };
+
+  // Remote Users ko handle karne ke liye listeners
+  useEffect(() => {
+    client.on('user-published', async (user, mediaType) => {
+      await client.subscribe(user, mediaType);
+      if (mediaType === 'video') {
+        user.videoTrack.play('remote-player');
+      }
+      if (mediaType === 'audio') {
+        user.audioTrack.play();
+      }
+    });
+
+    client.on('user-unpublished', (user) => {
+      // Remote user cleanup
+    });
+
+    return () => {
+      client.removeAllListeners();
+    };
+  }, []);
+
+  return (
+    <div style={{ textAlign: 'center', padding: '20px', backgroundColor: '#111', color: '#fff', minHeight: '100vh' }}>
+      <h2>WiftyUp HD Video Call</h2>
+
+      {errorMsg && (
+        <div style={{ color: '#ff4d4d', backgroundColor: '#330000', padding: '10px', borderRadius: '5px', marginBottom: '15px' }}>
+          <strong>Error:</strong> {errorMsg}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', margin: '20px 0', flexWrap: 'wrap' }}>
+        {/* Local Video Container */}
+        <div>
+          <h3>You (Local)</h3>
+          <div id="local-player" style={{ width: '300px', height: '225px', backgroundColor: '#222', borderRadius: '10px', overflow: 'hidden' }}></div>
         </div>
 
-        <div style={{ background: '#1a202c', borderRadius: '12px', height: '220px', overflow: 'hidden', position: 'relative' }}>
-          <div ref={remoteVideoRef} style={{ width: '100%', height: '100%' }} />
-          <span style={{ position: 'absolute', bottom: '8px', left: '8px', background: 'rgba(0,0,0,0.6)', padding: '2px 8px', borderRadius: '4px', fontSize: '10px' }}>Remote Peer</span>
+        {/* Remote Video Container */}
+        <div>
+          <h3>Remote Peer</h3>
+          <div id="remote-player" style={{ width: '300px', height: '225px', backgroundColor: '#222', borderRadius: '10px', overflow: 'hidden' }}></div>
         </div>
       </div>
 
-      <div style={{ marginTop: '20px' }}>
-        {!inCall ? (
-          <button onClick={startCallDirect} style={{ background: '#22c55e', color: '#fff', padding: '14px 32px', borderRadius: '30px', border: 'none', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer' }}>
+      <div>
+        {!joined ? (
+          <button 
+            onClick={startCall} 
+            style={{ padding: '12px 30px', fontSize: '16px', backgroundColor: '#00c853', color: '#fff', border: 'none', borderRadius: '25px', cursor: 'pointer' }}>
             📹 Start Call
           </button>
         ) : (
-          <button onClick={() => window.location.reload()} style={{ background: '#ef4444', color: '#fff', padding: '14px 32px', borderRadius: '30px', border: 'none', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer' }}>
-            🚫 End Call
+          <button 
+            onClick={leaveCall} 
+            style={{ padding: '12px 30px', fontSize: '16px', backgroundColor: '#d50000', color: '#fff', border: 'none', borderRadius: '25px', cursor: 'pointer' }}>
+            🛑 End Call
           </button>
         )}
       </div>
