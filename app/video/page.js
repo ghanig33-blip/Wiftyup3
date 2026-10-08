@@ -1,40 +1,50 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import AgoraRTC from 'agora-rtc-sdk-ng';
 
 export default function DirectVideoCall() {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
-
   const [status, setStatus] = useState('Idle');
   const [inCall, setInCall] = useState(false);
 
-  const APP_ID = 'a2eab83e53e1461f881ede90...'; // Apni Agora App ID yahan rakhein
+  const APP_ID = 'a2eab83e53e1461f881ede90e5ce48ca'; 
   const CHANNEL = 'wiftyup-room';
-
-  const rtcClient = useRef(null);
 
   const startCallDirect = async () => {
     setStatus('Camera & Mic Access Requesting...');
     try {
-      // 1. Backend API se Token fetch karein
-      const res = await fetch(`/api/agora-token?channelName=${CHANNEL}`);
-      const data = await res.json();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
+      });
 
-      if (!data.token) {
-        setStatus('Error: Token generation failed');
-        return;
+      setStatus('Camera Granted! Fetching Security Token...');
+
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+        localVideoRef.current.play();
       }
 
-      // 2. Agora RTC Client banayein
-      rtcClient.current = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+      // Automatically fetch token from server
+      let token = null;
+      try {
+        const res = await fetch(`/api/token?channel=${CHANNEL}`);
+        const data = await res.json();
+        token = data.token;
+      } catch (e) {
+        console.log("Token API Error:", e);
+      }
 
-      // Remote User Event Handlers
-      rtcClient.current.on('user-published', async (user, mediaType) => {
-        await rtcClient.current.subscribe(user, mediaType);
+      setStatus('Connecting to Agora Server...');
 
-        if (mediaType === 'video') {
+      const AgoraRTC = (await import('agora-rtc-sdk-ng')).default;
+      AgoraRTC.setLogLevel(3);
+      const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+
+      client.on('user-published', async (user, mediaType) => {
+        await client.subscribe(user, mediaType);
+        if (mediaType === 'video' && remoteVideoRef.current) {
           user.videoTrack.play(remoteVideoRef.current);
         }
         if (mediaType === 'audio') {
@@ -42,61 +52,56 @@ export default function DirectVideoCall() {
         }
       });
 
-      // Remote User Disconnect handling
-      rtcClient.current.on('user-unpublished', (user, mediaType) => {
-        if (mediaType === 'video' && remoteVideoRef.current) {
-          remoteVideoRef.current.innerHTML = '';
-        }
-      });
+      await client.join(APP_ID.trim(), CHANNEL, token, null);
 
-      // 3. Channel Join karein
-      await rtcClient.current.join(APP_ID, CHANNEL, data.token, null);
+      const videoTrack = stream.getVideoTracks()[0];
+      const audioTrack = stream.getAudioTracks()[0];
 
-      // 4. Camera aur Mic tracks create aur publish karein
-      const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
+      const tracksToPublish = [];
+      if (videoTrack) tracksToPublish.push(AgoraRTC.createCustomVideoTrack({ mediaStreamTrack: videoTrack }));
+      if (audioTrack) tracksToPublish.push(AgoraRTC.createCustomAudioTrack({ mediaStreamTrack: audioTrack }));
 
-      videoTrack.play(localVideoRef.current);
-      await rtcClient.current.publish([audioTrack, videoTrack]);
+      if (tracksToPublish.length > 0) {
+        await client.publish(tracksToPublish);
+      }
 
       setInCall(true);
-      setStatus('Call Connected!');
+      setStatus('Connected & Streaming Live!');
     } catch (err) {
       console.error(err);
-      setStatus('Call Failed: ' + err.message);
+      setStatus(`Error: ${err.message}`);
+      alert(`Call Connection Failed: ${err.message}`);
     }
-  };
-
-  const endCall = async () => {
-    if (rtcClient.current) {
-      await rtcClient.current.leave();
-    }
-    setInCall(false);
-    setStatus('Call Ended');
   };
 
   return (
-    <div style={{ padding: '20px', textAlign: 'center', fontFamily: 'sans-serif' }}>
-      <h2>Agora Direct Video Call</h2>
-      <p><strong>Status:</strong> {status}</p>
+    <div style={{ backgroundColor: '#090d16', color: '#fff', minHeight: '100vh', padding: '20px', fontFamily: 'sans-serif', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      <h2 style={{ margin: '10px 0' }}>WiftyUp HD Video Call</h2>
+      <p style={{ fontSize: '13px', color: '#a0aec0', marginBottom: '20px' }}>Status: {status}</p>
 
-      <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', margin: '20px 0' }}>
-        {/* Local Video Stream */}
-        <div>
-          <h3>Local Video</h3>
-          <div
-            ref={localVideoRef}
-            style={{ width: '320px', height: '240px', background: '#222', borderRadius: '8px' }}
-          ></div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '15px', width: '100%', maxWidth: '500px', margin: '10px 0' }}>
+        <div style={{ background: '#1a202c', borderRadius: '12px', height: '220px', overflow: 'hidden', position: 'relative' }}>
+          <video ref={localVideoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <span style={{ position: 'absolute', bottom: '8px', left: '8px', background: 'rgba(0,0,0,0.6)', padding: '2px 8px', borderRadius: '4px', fontSize: '10px' }}>You (Local)</span>
         </div>
 
-        {/* Remote Video Stream */}
-        <div>
-          <h3>Remote Video</h3>
-          <div
-            ref={remoteVideoRef}
-            style={{ width: '320px', height: '240px', background: '#222', borderRadius: '8px' }}
-          ></div>
+        <div style={{ background: '#1a202c', borderRadius: '12px', height: '220px', overflow: 'hidden', position: 'relative' }}>
+          <div ref={remoteVideoRef} style={{ width: '100%', height: '100%' }} />
+          <span style={{ position: 'absolute', bottom: '8px', left: '8px', background: 'rgba(0,0,0,0.6)', padding: '2px 8px', borderRadius: '4px', fontSize: '10px' }}>Remote Peer</span>
         </div>
       </div>
 
-      {!inCall ?
+      <div style={{ marginTop: '20px' }}>
+        {!inCall ? (
+          <button onClick={startCallDirect} style={{ background: '#22c55e', color: '#fff', padding: '14px 32px', borderRadius: '30px', border: 'none', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer' }}>
+            📹 Start Call
+          </button>
+        ) : (
+          <button onClick={() => window.location.reload()} style={{ background: '#ef4444', color: '#fff', padding: '14px 32px', borderRadius: '30px', border: 'none', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer' }}>
+            🚫 End Call
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
