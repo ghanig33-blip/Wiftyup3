@@ -8,11 +8,9 @@ export default function DirectVideoCall() {
   const [status, setStatus] = useState('Idle');
   const [inCall, setInCall] = useState(false);
 
-  const APP_ID = '69e3edbbb2364bd495222e330004af2d'; 
+  // Testing Mode App ID (No Token Required)
+  const APP_ID = 'a2eab83e53e1461f881ede90e5ce48ca'; 
   const CHANNEL = 'wiftyup-room';
-  
-  // Updated Valid Temp Token
-  const TEMP_TOKEN = '007eJxTYHgT93vnqhXZfsnRlxi+Gwuu4zb/K6DDMeMM07W17FpZuw0UGMwsU41TU5KSkoyMzUySUkwsTY2MjFKNjQ0MDEwS04xS9s07ltUQyMjQXPychZEBAkF8XobyjMy0ksrSAt2i/PxcBgYAVqsi8A=='; 
 
   const startCallDirect = async () => {
     setStatus('Camera & Mic Access Requesting...');
@@ -43,8 +41,8 @@ export default function DirectVideoCall() {
         }
       });
 
-      // Joining with valid Token
-      await client.join(APP_ID.trim(), CHANNEL, TEMP_TOKEN, null);
+      // No Token / Null parameters for testing mode
+      await client.join(APP_ID.trim(), CHANNEL, null, null);
 
       const videoTrack = stream.getVideoTracks()[0];
       const audioTrack = stream.getAudioTracks()[0];
