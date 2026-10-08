@@ -1,147 +1,202 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import AgoraRTC from 'agora-rtc-sdk-ng';
-
-const APP_ID = 'A2eab83e53e1461f881ede90e5ce48ca';
-const TOKEN =
-  '007eJxTYBCV+HlYwei5S+qqO+7J4m9V3eTFbm85YGApu6IiTedfkq4CQ6JRamKShXGqqXGqoYmZYZqFhWFqSqqlQappcqqJRXKiiN/xrIZARgYGU2UWRgYIBPH5GMoz00oqSwsUdIvy83MNGRgA3n0gQA==';
 
 const CHANNEL_NAME = 'WiftyFreeCall';
 
 export default function VideoPage() {
   const clientRef = useRef(null);
   const localTracksRef = useRef([]);
-  const localVideoRef = useRef(null);
-  const remoteVideoRef = useRef(null);
+  const AgoraRTCRef = useRef(null);
 
   const [joined, setJoined] = useState(false);
-  const [micOn, setMicOn] = useState(true);
-  const [cameraOn, setCameraOn] = useState(true);
-  const [status, setStatus] = useState('Ready');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [remoteUsers, setRemoteUsers] = useState([]);
 
   useEffect(() => {
+    let mounted = true;
+
+    async function loadAgora() {
+      try {
+        // IMPORTANT:
+        // Agora ko browser ke andar hi load karna hai.
+        // Isse "window is not defined" error nahi aayega.
+        const AgoraModule = await import('agora-rtc-sdk-ng');
+
+        if (!mounted) return;
+
+        const AgoraRTC = AgoraModule.default;
+
+        AgoraRTCRef.current = AgoraRTC;
+
+        const client = AgoraRTC.createClient({
+          mode: 'rtc',
+          codec: 'vp8'
+        });
+
+        clientRef.current = client;
+
+        client.on('user-published', async (user, mediaType) => {
+          try {
+            await client.subscribe(user, mediaType);
+
+            if (!mounted) return;
+
+            if (mediaType === 'video') {
+              const player = document.getElementById(
+                `remote-video-${user.uid}`
+              );
+
+              if (player) {
+                user.videoTrack?.play(player);
+              }
+            }
+
+            if (mediaType === 'audio') {
+              user.audioTrack?.play();
+            }
+
+            setRemoteUsers((prev) => {
+              const exists = prev.some(
+                (item) => item.uid === user.uid
+              );
+
+              if (exists) return prev;
+
+              return [...prev, user];
+            });
+          } catch (err) {
+            console.error('Subscribe error:', err);
+          }
+        });
+
+        client.on('user-unpublished', (user) => {
+          setRemoteUsers((prev) =>
+            prev.filter((item) => item.uid !== user.uid)
+          );
+        });
+
+        client.on('user-left', (user) => {
+          setRemoteUsers((prev) =>
+            prev.filter((item) => item.uid !== user.uid)
+          );
+        });
+      } catch (err) {
+        console.error('Agora load error:', err);
+
+        if (mounted) {
+          setError('Agora load nahi ho saka.');
+        }
+      }
+    }
+
+    loadAgora();
+
     return () => {
-      leaveCall();
+      mounted = false;
+
+      if (clientRef.current) {
+        clientRef.current.leave().catch(() => {});
+      }
     };
   }, []);
 
-  const joinCall = async () => {
+  async function joinCall() {
+    if (loading || joined) return;
+
     try {
-      setStatus('Connecting...');
+      setLoading(true);
+      setError('');
 
-      const client = AgoraRTC.createClient({
-        mode: 'rtc',
-        codec: 'vp8',
-      });
+      const AgoraRTC = AgoraRTCRef.current;
 
-      clientRef.current = client;
+      if (!AgoraRTC || !clientRef.current) {
+        throw new Error('Agora abhi load nahi hua.');
+      }
 
-      client.on('user-published', async (user, mediaType) => {
-        await client.subscribe(user, mediaType);
-
-        if (mediaType === 'video') {
-          const remoteVideoTrack = user.videoTrack;
-
-          if (remoteVideoTrack && remoteVideoRef.current) {
-            remoteVideoTrack.play(remoteVideoRef.current);
-          }
-        }
-
-        if (mediaType === 'audio') {
-          user.audioTrack?.play();
-        }
-      });
-
-      client.on('user-unpublished', (user, mediaType) => {
-        if (mediaType === 'video' && remoteVideoRef.current) {
-          remoteVideoRef.current.innerHTML = '';
-        }
-      });
-
-      client.on('user-left', () => {
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.innerHTML = '';
-        }
-      });
-
-      const uid = await client.join(
-        APP_ID,
-        CHANNEL_NAME,
-        TOKEN,
-        null
+      // Token server se lena
+      const response = await fetch(
+        `/api/token?channel=${encodeURIComponent(CHANNEL_NAME)}`
       );
 
-      const microphoneTrack =
-        await AgoraRTC.createMicrophoneAudioTrack();
+      const data = await response.json();
 
-      const cameraTrack =
-        await AgoraRTC.createCameraVideoTrack();
+      if (!response.ok) {
+        throw new Error(data.error || 'Token nahi mila.');
+      }
 
-      localTracksRef.current = [
-        microphoneTrack,
-        cameraTrack,
-      ];
+      const { token, appId, channelName, uid } = data;
+
+      if (!token || !appId || !channelName) {
+        throw new Error('Token response incomplete hai.');
+      }
+
+      const client = clientRef.current;
+
+      // Agora channel join
+      await client.join(
+        appId,
+        channelName,
+        token,
+        uid || null
+      );
+
+      // Camera + microphone
+      const tracks =
+        await AgoraRTC.createMicrophoneAndCameraTracks();
+
+      localTracksRef.current = tracks;
+
+      const [microphoneTrack, cameraTrack] = tracks;
 
       await client.publish([
         microphoneTrack,
-        cameraTrack,
+        cameraTrack
       ]);
 
-      if (localVideoRef.current) {
-        cameraTrack.play(localVideoRef.current);
+      // Local video
+      const localVideo = document.getElementById('local-video');
+
+      if (localVideo) {
+        cameraTrack.play(localVideo);
       }
 
       setJoined(true);
-      setStatus(`Connected • UID: ${uid}`);
-    } catch (error) {
-      console.error(error);
-      setStatus(`Error: ${error.message}`);
-    }
-  };
+    } catch (err) {
+      console.error('Join call error:', err);
 
-  const leaveCall = async () => {
+      setError(
+        err?.message || 'Call join nahi ho saki.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function leaveCall() {
     try {
-      localTracksRef.current.forEach((track) => {
-        track.stop();
-        track.close();
+      const tracks = localTracksRef.current;
+
+      tracks.forEach((track) => {
+        try {
+          track.stop();
+          track.close();
+        } catch {}
       });
 
       localTracksRef.current = [];
 
       if (clientRef.current) {
         await clientRef.current.leave();
-        clientRef.current = null;
       }
 
       setJoined(false);
-      setStatus('Call ended');
-    } catch (error) {
-      console.error(error);
+      setRemoteUsers([]);
+    } catch (err) {
+      console.error('Leave error:', err);
     }
-  };
-
-  const toggleMic = async () => {
-    const microphoneTrack = localTracksRef.current[0];
-
-    if (!microphoneTrack) return;
-
-    const newState = !micOn;
-
-    await microphoneTrack.setEnabled(newState);
-    setMicOn(newState);
-  };
-
-  const toggleCamera = async () => {
-    const cameraTrack = localTracksRef.current[1];
-
-    if (!cameraTrack) return;
-
-    const newState = !cameraOn;
-
-    await cameraTrack.setEnabled(newState);
-    setCameraOn(newState);
-  };
+  }
 
   return (
     <main
@@ -149,17 +204,57 @@ export default function VideoPage() {
         minHeight: '100vh',
         background: '#111',
         color: '#fff',
-        padding: '20px',
-        fontFamily: 'Arial, sans-serif',
+        padding: '20px'
       }}
     >
-      <h1 style={{ textAlign: 'center' }}>
-        WiftyUp Video Call
-      </h1>
+      <h1>Wifty Free Call</h1>
 
-      <p style={{ textAlign: 'center', color: '#aaa' }}>
-        {status}
-      </p>
+      {!joined && (
+        <button
+          onClick={joinCall}
+          disabled={loading}
+          style={{
+            padding: '14px 24px',
+            fontSize: '18px',
+            borderRadius: '10px',
+            border: 'none',
+            cursor: 'pointer'
+          }}
+        >
+          {loading ? 'Joining...' : 'Join Call'}
+        </button>
+      )}
+
+      {joined && (
+        <button
+          onClick={leaveCall}
+          style={{
+            padding: '14px 24px',
+            fontSize: '18px',
+            borderRadius: '10px',
+            border: 'none',
+            background: '#d32f2f',
+            color: '#fff',
+            marginBottom: '20px'
+          }}
+        >
+          Leave Call
+        </button>
+      )}
+
+      {error && (
+        <div
+          style={{
+            marginTop: '20px',
+            padding: '15px',
+            background: '#3a1515',
+            color: '#ff7777',
+            borderRadius: '10px'
+          }}
+        >
+          {error}
+        </div>
+      )}
 
       <div
         style={{
@@ -167,120 +262,42 @@ export default function VideoPage() {
           gridTemplateColumns:
             'repeat(auto-fit, minmax(280px, 1fr))',
           gap: '15px',
-          maxWidth: '900px',
-          margin: '25px auto',
+          marginTop: '25px'
         }}
       >
-        <div
-          ref={localVideoRef}
-          style={{
-            height: '300px',
-            background: '#222',
-            borderRadius: '15px',
-            overflow: 'hidden',
-            position: 'relative',
-          }}
-        >
-          {!joined && (
+        {joined && (
+          <div>
+            <p>My Camera</p>
+
             <div
+              id="local-video"
               style={{
-                height: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#777',
+                width: '100%',
+                height: '300px',
+                background: '#222',
+                borderRadius: '12px',
+                overflow: 'hidden'
               }}
-            >
-              Your Camera
-            </div>
-          )}
-        </div>
-
-        <div
-          ref={remoteVideoRef}
-          style={{
-            height: '300px',
-            background: '#222',
-            borderRadius: '15px',
-            overflow: 'hidden',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#777',
-          }}
-        >
-          Remote User
-        </div>
-      </div>
-
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'center',
-          gap: '10px',
-          flexWrap: 'wrap',
-        }}
-      >
-        {!joined ? (
-          <button
-            onClick={joinCall}
-            style={{
-              padding: '14px 25px',
-              border: 'none',
-              borderRadius: '10px',
-              background: '#2196f3',
-              color: '#fff',
-              fontSize: '16px',
-              cursor: 'pointer',
-            }}
-          >
-            Join Call
-          </button>
-        ) : (
-          <>
-            <button
-              onClick={toggleMic}
-              style={{
-                padding: '12px 20px',
-                border: 'none',
-                borderRadius: '10px',
-                background: micOn ? '#333' : '#d32f2f',
-                color: '#fff',
-                fontSize: '15px',
-              }}
-            >
-              {micOn ? '🎤 Mic On' : '🔇 Mic Off'}
-            </button>
-
-            <button
-              onClick={toggleCamera}
-              style={{
-                padding: '12px 20px',
-                border: 'none',
-                borderRadius: '10px',
-                background: cameraOn ? '#333' : '#d32f2f',
-                color: '#fff',
-                fontSize: '15px',
-              }}
-            >
-              {cameraOn ? '📷 Camera On' : '📵 Camera Off'}
-            </button>
-
-            <button
-              onClick={leaveCall}
-              style={{
-                padding: '12px 20px',
-                border: 'none',
-                borderRadius: '10px',
-                background: '#f44336',
-                color: '#fff',
-                fontSize: '15px',
-              }}
-            >
-              End Call
-            </button>
-          </>
+            />
+          </div>
         )}
+
+        {remoteUsers.map((user) => (
+          <div key={user.uid}>
+            <p>User {user.uid}</p>
+
+            <div
+              id={`remote-video-${user.uid}`}
+              style={{
+                width: '100%',
+                height: '300px',
+                background: '#222',
+                borderRadius: '12px',
+                overflow: 'hidden'
+              }}
+            />
+          </div>
+        ))}
       </div>
     </main>
   );
